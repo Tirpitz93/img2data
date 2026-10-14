@@ -190,11 +190,11 @@ class PlotCanvas(tk.Canvas):
         except IndexError:
             return None
 
-    def _set_position(self, sel: Selection, x: float, y: float) -> None:
+    def _set_position(self, sel: Selection, x: float, y: float, lock: bool = True) -> None:
         if sel[0] == "handle":
             self.doc.calibration.handles[sel[1]] = [x, y]
         else:
-            self.doc.series[sel[1]].points[sel[2]] = [x, y]
+            self.doc.move_point(sel[1], sel[2], x, y, lock)
 
     def hit_test(self, cx: float, cy: float) -> Selection | None:
         best, best_d = None, self.HIT_RADIUS
@@ -230,8 +230,9 @@ class PlotCanvas(tk.Canvas):
         log.debug("nudge %s by (%g, %g)", self.sel, dx, dy)
         self.doc.push_undo()
         self._set_position(self.sel, pos[0] + dx, pos[1] + dy)
+        pos = self.position(self.sel)  # a locked x does not move
         self.draw_overlay()
-        self.on_cursor(pos[0] + dx, pos[1] + dy)
+        self.on_cursor(*pos)
         self.on_change(False)
 
     def step_selection(self, delta: int) -> str:
@@ -282,16 +283,22 @@ class PlotCanvas(tk.Canvas):
             elif self.mode == "add":
                 self.doc.push_undo()
                 s = self.doc.current
+                if not e.state & 0x1:  # Shift places a free point between the shared x values
+                    gx = self.doc.grid_x(self.doc.active, x)
+                    if gx is not None:
+                        x = gx
                 s.points.append([x, y])
                 log.info("added point to '%s' at (%.2f, %.2f)", s.name, x, y)
                 hit = ("point", self.doc.active, len(s.points) - 1)
             else:
                 self.select(None)
                 return
-            self._drag = {"origin": (x, y), "start": (x, y), "undone": True}
+            self._drag = {"origin": (x, y), "start": (x, y), "undone": True, "free": True}
             self.on_change(False)
         else:
-            self._drag = {"origin": self.position(hit), "start": (x, y), "undone": False}
+            free = hit[0] == "handle" or not self.doc.x_locked(hit[1], hit[2])
+            self._drag = {"origin": self.position(hit), "start": (x, y), "undone": False,
+                          "free": free}
         self.select(hit)
 
     def _motion(self, e) -> None:
@@ -312,9 +319,11 @@ class PlotCanvas(tk.Canvas):
                 ny = oy
             else:
                 nx = ox
-        self._set_position(self.sel, nx, ny)
+        if self.sel[0] == "point" and self.sel[1] > 0 and self._drag["free"]:
+            nx = self.doc.snap_x(self.sel[1], nx, self.HIT_RADIUS / self.scale)
+        self._set_position(self.sel, nx, ny, lock=not self._drag["free"])
         self.draw_overlay()
-        self.on_cursor(nx, ny)
+        self.on_cursor(*self.position(self.sel))
         self.on_change(True)
 
     def _release(self, _e) -> None:

@@ -109,3 +109,28 @@ def test_resolve_sources(tmp_path, monkeypatch):
     assert p.exists() and p.parent == tmp_path / "cache"
     with pytest.raises(FileNotFoundError):
         dropping.resolve_source(str(tmp_path / "missing.png"))
+
+def test_shared_x_unified_frame():
+    from img2data.export import build_frame
+    from img2data.model import ImageDocument
+    import math
+    doc = ImageDocument("x.png")
+    doc.calibration.handles.update(x1=[0, 0], x2=[100, 0], y1=[0, 0], y2=[0, 100])
+    doc.calibration.values.update(x1=0, x2=100, y1=0, y2=100)
+    doc.shared_x = True
+    doc.series[0].points = [[10, 10], [30, 30]]
+    s2 = doc.add_series()
+    s2.points = [[doc.grid_x(1, 10.5), 50]]
+    s2.points.append([doc.grid_x(1, 12), 60])
+    assert s2.points[1][0] == 30
+    s2.points[1] = [20, 60]
+    assert s2.points[0][0] == 10
+    assert doc.x_locked(1, 0) and not doc.x_locked(1, 1)
+    doc.move_point(1, 0, 99, 70)
+    assert s2.points[0] == [10, 70]
+    doc.move_point(0, 0, 12, 10)
+    assert s2.points[0][0] == 12
+    df = build_frame([doc])
+    assert list(df.columns) == ["x", "Series 1", "Series 2"]
+    assert list(df["x"]) == [12, 20, 30]
+    assert math.isnan(df["Series 1"][1]) and math.isnan(df["Series 2"][2])

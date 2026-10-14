@@ -40,6 +40,7 @@ class ImageDocument:
         self.calibration = Calibration()
         self.series: list[Series] = [Series("Series 1", PALETTE[0])]
         self.active = 0
+        self.shared_x = False
         self._image: Image.Image | None = None
         self._undo: list[dict] = []
         self._redo: list[dict] = []
@@ -77,11 +78,61 @@ class ImageDocument:
     def data_for(self, series: Series) -> list[tuple[float, float] | None]:
         return [self.calibration.to_data(px, py) for px, py in series.points]
 
+    # ---- shared x values ------------------------------------------------
+    # With shared_x, series 0 defines the x grid: points of later series that sit on one of
+    # its x values are locked to it (only y is editable) and follow it when it moves.
+    def anchor_index(self, si: int, pi: int) -> int | None:
+        """Index of the series-0 point whose x this point is locked to, or None."""
+        if not self.shared_x or si == 0:
+            return None
+        px = self.series[si].points[pi][0]
+        for i, p in enumerate(self.series[0].points):
+            if p[0] == px:
+                return i
+        return None
+
+    def x_locked(self, si: int, pi: int) -> bool:
+        return self.anchor_index(si, pi) is not None
+
+    def snap_x(self, si: int, px: float, tol: float) -> float:
+        """Snap px to the nearest x of another series (series 0 wins ties) within tol."""
+        if not self.shared_x:
+            return px
+        best, best_d = px, tol
+        for sj in sorted(range(len(self.series)), key=lambda j: j != 0):
+            if sj == si:
+                continue
+            for p in self.series[sj].points:
+                d = abs(p[0] - px)
+                if d < best_d:
+                    best, best_d = p[0], d
+        return best
+
+    def grid_x(self, si: int, px: float) -> float | None:
+        """Nearest series-0 x not yet used by series si (None if si is 0 or all are used)."""
+        if not self.shared_x or si == 0:
+            return None
+        used = {p[0] for p in self.series[si].points}
+        free = [p[0] for p in self.series[0].points if p[0] not in used]
+        return min(free, key=lambda v: abs(v - px)) if free else None
+
+    def move_point(self, si: int, pi: int, x: float, y: float, lock: bool = True) -> None:
+        pt = self.series[si].points[pi]
+        if self.shared_x:
+            if si == 0:
+                for s in self.series[1:]:
+                    for q in s.points:
+                        if q[0] == pt[0]:
+                            q[0] = x
+            elif lock and self.x_locked(si, pi):
+                x = pt[0]
+        pt[0], pt[1] = x, y
+
     def set_point_data(self, si: int, pi: int, x: float, y: float) -> bool:
         pix = self.calibration.to_pixel(x, y)
         if pix is None:
             return False
-        self.series[si].points[pi] = [pix[0], pix[1]]
+        self.move_point(si, pi, pix[0], pix[1])
         return True
 
     # undo/redo operate on snapshots of the editable state
@@ -90,12 +141,14 @@ class ImageDocument:
             "calibration": self.calibration.to_dict(),
             "series": [s.to_dict() for s in self.series],
             "active": self.active,
+            "shared_x": self.shared_x,
         })
 
     def _restore(self, snap: dict) -> None:
         self.calibration = Calibration.from_dict(snap["calibration"])
         self.series = [Series.from_dict(s) for s in snap["series"]]
         self.active = min(snap["active"], len(self.series) - 1)
+        self.shared_x = bool(snap.get("shared_x", False))
 
     def push_undo(self) -> None:
         self._undo.append(self.snapshot())

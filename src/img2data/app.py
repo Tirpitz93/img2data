@@ -95,6 +95,7 @@ class App:
         self.step_var = tk.DoubleVar(value=1.0)
         self.wide_var = tk.BooleanVar(value=False)
         self.pixels_var = tk.BooleanVar(value=False)
+        self.shared_x_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar()
         self.hint_var = tk.StringVar()
         self.series_var = tk.StringVar()
@@ -143,6 +144,9 @@ class App:
         e.add_command(label="Redo", accelerator="Ctrl+Y", command=self.redo)
         e.add_command(label="Delete selected point", accelerator="Del",
                       command=lambda: self.tab and self.tab.canvas.delete_selected())
+        e.add_separator()
+        e.add_checkbutton(label="Share X values across series", variable=self.shared_x_var,
+                          command=self.apply_shared_x)
         m.add_cascade(label="Edit", menu=e)
         v = tk.Menu(m, tearoff=False)
         v.add_command(label="Fit to window", accelerator="F", command=lambda: self._view("fit"))
@@ -558,6 +562,16 @@ class App:
         tab.doc.calibration.ylog = self.log_vars["y"].get()
         self.refresh_points()
 
+    def apply_shared_x(self) -> None:
+        tab = self.tab
+        if not tab or self._syncing:
+            return
+        tab.doc.push_undo()
+        tab.doc.shared_x = self.shared_x_var.get()
+        self.status_var.set("Shared X: new points in later series take the first series' x values "
+                            "(Shift+click places a free point)" if tab.doc.shared_x
+                            else "Shared X disabled")
+
     def clear_calibration(self) -> None:
         tab = self.tab
         if tab:
@@ -649,7 +663,7 @@ class App:
             dlg = ValueDialog(self.root, "Edit point (pixels)", ("px", "py"), pos)
             if dlg.result:
                 doc.push_undo()
-                doc.series[sel[1]].points[sel[2]] = list(dlg.result)
+                doc.move_point(sel[1], sel[2], *dlg.result)
         else:
             dlg = ValueDialog(self.root, "Edit point (data)", ("x", "y"), data)
             if dlg.result:
@@ -758,6 +772,7 @@ class App:
                 self.val_vars[n].set(f"{cal.values[n]:g}")
             self.log_vars["x"].set(cal.xlog)
             self.log_vars["y"].set(cal.ylog)
+            self.shared_x_var.set(tab.doc.shared_x)
             self._refresh_cal_labels()
             self.series_combo.configure(values=[s.name for s in tab.doc.series])
             self.series_combo.current(tab.doc.active)

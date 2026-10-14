@@ -55,8 +55,34 @@ def wide_frame(docs: list[ImageDocument], include_pixels: bool = False) -> pd.Da
     return pd.concat(parts, axis=1) if parts else pd.DataFrame()
 
 
+def shared_x_frame(d: ImageDocument, include_pixels: bool = False) -> pd.DataFrame:
+    """One row per distinct x; each series gets a y column that is NaN where it has no point."""
+    rows: dict[float, dict] = {}
+    names = [s.name for s in d.series]
+    for si, s in enumerate(d.series):
+        for (px, py), data in zip(s.points, d.data_for(s)):
+            x, y = data if data else (math.nan, math.nan)
+            row = rows.setdefault(round(px, 6), {"x": x, "px": px})
+            row[names[si]] = y
+            if include_pixels:
+                row[f"{names[si]} py"] = py
+    cols = ["x"] + (["px"] if include_pixels else [])
+    for n in names:
+        cols += [n] + ([f"{n} py"] if include_pixels else [])
+    df = pd.DataFrame(list(rows.values()), columns=cols)
+    return df.sort_values("x", kind="stable", na_position="last").reset_index(drop=True)
+
+
 def build_frame(docs: list[ImageDocument], wide: bool = False,
                 include_pixels: bool = False) -> pd.DataFrame:
+    if docs and all(d.shared_x for d in docs):
+        frames = []
+        for d in docs:
+            f = shared_x_frame(d, include_pixels)
+            if len(docs) > 1:
+                f.insert(0, "image", d.name)
+            frames.append(f)
+        return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     return (wide_frame if wide else long_frame)(docs, include_pixels)
 
 
