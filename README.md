@@ -18,7 +18,8 @@ Logs go to `./logs` (`--log-dir`): `debug.log`, `info.log`, `warning.log`, `erro
 `critical.log` — each contains its own level and everything more severe (so `debug.log` has
 everything). Only files from the chosen level upward are written, and that level is also echoed
 to the console. `fatal.log` captures hard crashes (faulthandler).
-
-    python -m img2data -v                 # debug
-    python -m img2data -l warning a.png   # choose level
-    python -m img2data -q                 # errors only
+```bash
+python -m img2data -v                 # debug
+python -m img2data -l warning a.png   # choose level
+python -m img2data -q                 # errors only
+```

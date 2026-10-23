@@ -5,11 +5,14 @@ description = "Reverse-engineer numeric data from images of plots"
 requires-python = ">=3.14"
 dependencies = [
     "numpy>=2.5.4",
+    "opencv-python>=5.0.0.93",
     "openpyxl>=3.1.5",
     "pandas>=3.0.6",
     "pillow>=12.3.0",
     "requests>=2.34.2",
+    "tkinter-tooltip>=3.1.2",
     "tkinterdnd2>=0.6.4",
+    "tktooltip>=1.2.0",
     "ttkbootstrap>=2.2.3",
 ]
 
