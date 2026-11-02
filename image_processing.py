@@ -2,9 +2,8 @@ from PIL import Image
 import cv2
 import numpy as np
 
-from tkinter import filedialog, Tk
+from tkinter import filedialog, Tk,ttk
 import tkinter as tk
-
 from TkToolTip import ToolTip
 
 
@@ -30,6 +29,14 @@ class LineTestBed(Tk):
         self.canvas.pack(pady=10)
         self.line1 = None
         self.line2 = None
+
+        self.lines_table = tk.Frame(self)
+        self.lines_table.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
+        self.table_header = tk.Label(self.lines_table, text="Detected Lines")
+        self.table_header.grid(row=0, column=0, padx=10)
+        self.table_tree = ttk.Treeview(self.lines_table, columns=("x1", "y1", "x2", "y2", "length", "angle", "X-axis Score", "Y-axis Score"), show="headings")
+        self.table_tree.grid(row=1, column=0, padx=10)
+
 
         self.stats   = tk.Frame(self)
         self.stats.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
@@ -191,16 +198,16 @@ class LineTestBed(Tk):
         print(f"Canvas clicked at: ({x}, {y})")
 
         if self.line1 is None:
-            self.line1 = Line(None, None,None,None)  # Placeholder for line selection
+            self.line1 = Line(None, None,None,None, self.canvas)  # Placeholder for line selection
+
         if self.line1.x1 is None:
             self.line1.x1, self.line1.y1 = x, y
 
         elif self.line1.x2 is None:
             self.line1.x2, self.line1.y2 = x, y
 
-        elif self.line2 is None:
-            self.line2 = Line(None, None,None,None)  # Placeholder for line selection
-        elif self.line2.x1 is None:
+        elif self.line2 is None or self.line2.x1 is None:
+            self.line2 = Line(None, None,None,None, self.canvas)  # Placeholder for line selection
             self.line2.x1, self.line2.y1 = x, y
 
         elif self.line2.x2 is None:
@@ -225,7 +232,12 @@ class LineTestBed(Tk):
         #             self.canvas.create_line(x1, y1, x2, y2, fill="red", width=2)
         # else:
         self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=tk.PhotoImage(width=800, height=400))  # Placeholder for empty canvas
+        # self.canvas.create_image(0, 0, anchor=tk.NW, image=tk.PhotoImage(width=800, height=400))  # Placeholder for empty canvas
+        self.canvas.create_rectangle(0, 0, self.canvas.winfo_width(), self.canvas.winfo_height(), fill="white")  # Placeholder for empty canvas
+        if self.image_pil is not None:
+            self.tk_image = tk.PhotoImage(self.image_pil)
+            self.canvas.config(width=self.image_pil.width, height=self.image_pil.height)
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
             #draw line end points
         if self.line1 and self.line1.x1 is not None and self.line1.x2 is not None:
             self.canvas.create_oval(self.line1.x1-3, self.line1.y1-3, self.line1.x1+3, self.line1.y1+3, fill="blue")
@@ -264,6 +276,11 @@ class LineTestBed(Tk):
                 self.l2distance_end.config(text=f"{np.sqrt((self.line2.x2)**2 + (self.line2.y2)**2):.2f}, {np.sqrt((self.canvas.winfo_width() - self.line2.x2)**2 + (self.line2.y2)**2):.2f}, {np.sqrt((self.line2.x2)**2 + (self.canvas.winfo_height() - self.line2.y2)**2):.2f}, {np.sqrt((self.canvas.winfo_width() - self.line2.x2)**2 + (self.canvas.winfo_height() - self.line2.y2)**2):.2f}")
                 self.l1slope.config(text=f"{self.line1.slope:.2f}" if self.line1.slope != float('inf') else "Inf")
                 self.l2slope.config(text=f"{self.line2.slope:.2f}" if self.line2.slope != float('inf') else "Inf")
+                self.l1x_axis_score.config(text=f"{self.line1.x_axis_score:.2f}" if self.line1.x_axis_score is not None else "N/A")
+                self.l2x_axis_score.config(text=f"{self.line2.x_axis_score:.2f}" if self.line2.x_axis_score is not None else "N/A")
+                self.l1y_axis_score.config(text=f"{self.line1.y_axis_score:.2f}" if self.line1.y_axis_score is not None else "N/A")
+                self.l2y_axis_score.config(text=f"{self.line2.y_axis_score:.2f}" if self.line2.y_axis_score is not None else "N/A")
+
 
             else:
                 self.angle.config(text="")
@@ -294,10 +311,17 @@ class LineTestBed(Tk):
             try:
                 self.image_pil = load_image(self.image_path)
                 print(f"Loaded image: {self.image_path}")
+                # resize canvas to image size
+                # self.canvas.config(width=self.image_pil.width, height=self.image_pil.height)
+                self.update_canvas()
+
+
             except FileNotFoundError:
                 print(f"[ERROR] Image not found at: {self.image_path}")
             except Exception as e:
                 print(f"[ERROR] An unexpected error occurred while loading the image: {e}")
+
+
 
     def process_image(self):
         """Process the loaded image to detect edges and lines."""
@@ -313,7 +337,7 @@ class LineTestBed(Tk):
             print(f"Detected {len(lines) if lines is not None else 0} line segments.")
 
             selected_lines = select_lines(lines, self.image_pil)
-
+            self.lines = [Line(*line, self.canvas) for line in lines] if lines is not None else []
             x_axis, y_axis = calculate_calibration(selected_lines)
             print(f"X Axis: {x_axis}, Y Axis: {y_axis}")
 
@@ -323,11 +347,12 @@ class LineTestBed(Tk):
 
 
 class Line(object):
-    def __init__(self, x1, y1, x2, y2):
+    def __init__(self, x1, y1, x2, y2, canvas=None):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
         self.y2 = y2
+        self.canvas = canvas
 
     def __repr__(self):
         return f"line({self.x1}, {self.y1}, {self.x2}, {self.y2})"
@@ -336,6 +361,13 @@ class Line(object):
     def length(self):
         return np.sqrt((self.x2 - self.x1) ** 2 + (self.y2 - self.y1) ** 2)
 
+    @property
+    def rel_length(self):
+        """Return the relative length of the line segment as a fraction of the canvas diagonal."""
+        if self.canvas is None:
+            return None
+        canvas_diagonal = np.sqrt(self.canvas.winfo_width() ** 2 + self.canvas.winfo_height() ** 2)
+        return self.length / canvas_diagonal if canvas_diagonal != 0 else None
 
     @property
     def angle(self):
@@ -381,7 +413,27 @@ class Line(object):
         else:
             return abs(self.slope - other.slope) < tolerance
 
+    @property
+    def x_axis_score(self):
+        """Score indicating how well the line aligns with the expected X axis."""
+        if self.length == 0:
+            return 0
+        # The closer the angle is to 0 or 180 degrees, the better it aligns with the X axis
+        angle = abs(self.angle) % 180
+        score = max(0, 1 - (angle / 90))  # Normalize to [0, 1]
+        distance_from_top = max(1,min(self.y1/self.canvas.winfo_height(), (self.canvas.winfo_height() - self.y1)/self.canvas.winfo_height(), self.y2/self.canvas.winfo_height(), (self.canvas.winfo_height() - self.y2)/self.canvas.winfo_height()) if self.canvas is not None else 0)
+        return score  * self.length/ (self.canvas.winfo_width()*distance_from_top)  if self.canvas is not None and self.length != 0 else score
 
+    @property
+    def y_axis_score(self):
+        """Score indicating how well the line aligns with the expected Y axis."""
+        if self.length == 0:
+            return 0
+        # The closer the angle is to 90 or 270 degrees, the better it aligns with the Y axis
+        angle = abs(self.angle+90) % 180
+        score = max(0, 1- (angle / 90))  # Normalize to [0, 1]
+        distance_from_side = max(1,min(self.x1/self.canvas.winfo_width(), (self.canvas.winfo_width() - self.x1)/self.canvas.winfo_width(), self.x2/self.canvas.winfo_width(), (self.canvas.winfo_width() - self.x2)/self.canvas.winfo_width()) if self.canvas is not None else 0)
+        return (score  * self.length / (self.canvas.winfo_height()*distance_from_side)) if self.canvas is not None and self.length != 0 else score
 
 
 
@@ -461,23 +513,21 @@ def select_lines(lines, image_pil):
             x1, y1, x2, y2 = line
             cv2.line(image_with_lines, (x1, y1), (x2, y2), (255, 0, 0), 2, cv2.LINE_AA)
 
-    horizontal_lines = [ line for line in sorted(lines, key=lambda l: l[1], reverse=True) if abs(line[1] - line[3]) < 10] if lines is not None else []
-    vertical_lines = [ line for line in sorted(lines, key=lambda l: l[0]) if abs(line[0] - line[2]) < 10] if lines is not None else []
 
 
     # horizontal_lines = merge_lines(horizontal_lines, orientation='horizontal')
     # vertical_lines = merge_lines(vertical_lines, orientation='vertical')
 
-    print(f"Detected {len(horizontal_lines)} horizontal lines and {len(vertical_lines)} vertical lines.")
+    # print(f"Detected {len(horizontal_lines)} horizontal lines and {len(vertical_lines)} vertical lines.")
 
-    for line in horizontal_lines:
-        x1, y1, x2, y2 = line
-        cv2.line(image_with_lines, (x1, y1), (x2, y2), (0, 255, 0), 2, cv2.LINE_AA)
-        break
-    for line in vertical_lines:
-        x1, y1, x2, y2 = line
-        cv2.line(image_with_lines, (x1, y1), (x2, y2), (0, 0, 255), 2, cv2.LINE_AA)
-        break
+    # for line in horizontal_lines:
+    #     x1, y1, x2, y2 = line
+    #     cv2.line(image_with_lines, (x1, y1), (x2, y2), (0, 255, 0), 2, cv2.LINE_AA)
+    #     break
+    # for line in vertical_lines:
+    #     x1, y1, x2, y2 = line
+    #     cv2.line(image_with_lines, (x1, y1), (x2, y2), (0, 0, 255), 2, cv2.LINE_AA)
+    #     break
 
     cv2.imshow("Detected Lines", image_with_lines)
     cv2.waitKey(0)
