@@ -33,7 +33,7 @@ class Accordion(Frame):
         width = max([c.winfo_reqwidth() for c in chords])
 
         for c in chords:
-            i = PhotoImage()  # blank image to force Label to use pixel size
+            i = PhotoImage(master=self)  # blank image to force Label to use pixel size
             label = Label(self, text=c.title,
                           image=i,
                           compound='center',
@@ -59,3 +59,4 @@ class Accordion(Frame):
             chord.grid()
         else:
             chord.grid_remove()
+        self.event_generate("<<AccordionChanged>>")
